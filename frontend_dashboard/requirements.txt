@@ -1,0 +1,4 @@
+# Dashboard backend extras (project venv already has core ML deps)
+flask>=3.0
+flask-cors>=4.0
+werkzeug>=3.0

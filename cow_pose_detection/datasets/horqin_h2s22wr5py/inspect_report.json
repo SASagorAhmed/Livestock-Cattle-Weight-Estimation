@@ -1,0 +1,29 @@
+{
+  "dataset_expected": {
+    "name": "Cattle side view and back view dataset",
+    "doi": "10.17632/h2s22wr5py.2",
+    "url": "https://data.mendeley.com/datasets/h2s22wr5py/2",
+    "paper_notes": [
+      "72 side-view + 72 back-view PNG images",
+      "Excel/XLSX manual measurements (OBL, WH, HG, HL, weight)",
+      "LabelMe annotations for biometric measurement points"
+    ]
+  },
+  "status": "found",
+  "root": "D:\\Data Mining project\\Livestock-Cattle-Weight-Estimation\\cow_pose_detection\\datasets\\horqin_h2s22wr5py",
+  "counts": {
+    "images": 0,
+    "side_view_guess": 0,
+    "back_view_guess": 0,
+    "unknown_view": 0,
+    "labelme_json": 0,
+    "excel_or_csv": 0,
+    "other_json": 0
+  },
+  "tables": [],
+  "sample_images": [],
+  "labelme_label_histogram": {},
+  "four_keypoint_exact_match": [],
+  "four_keypoint_ready": false,
+  "recommendation": "Labels do NOT exactly match the 4 target keypoints. Run prepare_labelme_workspace.py then relabel side-view images in LabelMe."
+}

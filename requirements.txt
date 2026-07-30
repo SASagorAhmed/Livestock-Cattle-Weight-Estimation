@@ -1,0 +1,13 @@
+# Python 3.10+ (3.11+ recommended). Fully offline inference.
+# TensorFlow is preferred when native DLLs are allowed by the OS.
+# A NumPy fallback loads the same local h5model.h5 weights if TF cannot import.
+
+tensorflow>=2.15,<2.16
+tensorflow-hub>=0.16.1
+tf-keras>=2.15,<2.16
+numpy>=1.26,<2.0
+scikit-learn>=1.3,<1.4
+Pillow>=10.0
+h5py>=3.10
+Flask>=3.0
+Werkzeug>=3.0

@@ -1,0 +1,45 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.tfhub_cache/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / frontend
+node_modules/
+frontend_dashboard/frontend/node_modules/
+frontend_dashboard/frontend/dist/
+frontend_dashboard/frontend/.env
+frontend_dashboard/frontend/.env.local
+
+# Model download caches (keep tracked weights; ignore HF cache)
+cow_pose_detection/models/.cache/
+
+# Run outputs (local only)
+frontend_dashboard/results/
+uploads/*
+!uploads/img_9.jpg
+!uploads/img_402.jpg
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+*.log
+
+# Local Cursor / IDE (never push)
+.cursor/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+cow_pose_detection/easy_ViTPose/
+cow_pose_detection/output/
+

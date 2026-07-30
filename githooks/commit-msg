@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Strip Cursor / AI attribution trailers from commit messages.
+# Does not rewrite file contents — commit message only.
+message_file="${1:-}"
+if [[ -z "$message_file" || ! -f "$message_file" ]]; then
+  exit 0
+fi
+
+tmp_file="$(mktemp)"
+
+awk '
+BEGIN { IGNORECASE = 1 }
+function is_forbidden(line) {
+  if (line ~ /cursoragent@cursor\.com/) return 1
+  if (line ~ /^[[:space:]]*co-authored-by:[[:space:]]+cursor([[:space:]<]|$)/) return 1
+  if (line ~ /^[[:space:]]*co-authored-by:[[:space:]]+.*copilot/) return 1
+  if (line ~ /^[[:space:]]*co-authored-by:[[:space:]]+.*claude/) return 1
+  if (line ~ /^[[:space:]]*made-with:[[:space:]]*cursor([[:space:][:punct:]].*)?$/) return 1
+  if (line ~ /^[[:space:]]*(made|generated)[[:space:]]+(with|by)[[:space:]]+cursor([[:space:][:punct:]].*)?$/) return 1
+  if (line ~ /^[[:space:]]*(made|generated)[[:space:]]+(with|by)[[:space:]]+claude([[:space:][:punct:]].*)?$/) return 1
+  if (line ~ /^[[:space:]]*(made|generated)[[:space:]]+(with|by)[[:space:]]+chatgpt([[:space:][:punct:]].*)?$/) return 1
+  if (line ~ /^[[:space:]]*(made|generated)[[:space:]]+(with|by)[[:space:]]+github[[:space:]]+copilot([[:space:][:punct:]].*)?$/) return 1
+  if (line ~ /^[[:space:]]*https?:\/\/(www\.)?cursor\.com\/?([[:space:][:punct:]].*)?$/) return 1
+  return 0
+}
+{
+  if (!is_forbidden($0)) {
+    lines[++count] = $0
+  }
+}
+END {
+  while (count > 0 && lines[count] ~ /^[[:space:]]*$/) {
+    count--
+  }
+  for (i = 1; i <= count; i++) {
+    print lines[i]
+  }
+}
+' "$message_file" > "$tmp_file"
+
+mv "$tmp_file" "$message_file"

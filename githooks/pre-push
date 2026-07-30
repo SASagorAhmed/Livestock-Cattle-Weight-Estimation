@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Preserve stdin for both Git LFS and this hook (hooks receive push refs on stdin).
+stdin_data="$(cat || true)"
+
+# Run Git LFS first when available (required when core.hooksPath=githooks).
+if command -v git-lfs >/dev/null 2>&1; then
+  printf '%s' "$stdin_data" | git lfs pre-push "$@"
+fi
+
+# Block pushes when any commit message still contains Cursor/AI attribution trailers.
+has_forbidden=0
+zero_sha="0000000000000000000000000000000000000000"
+
+contains_forbidden_message() {
+  local commit_sha="$1"
+  git log -1 --format=%B "$commit_sha" | awk '
+    BEGIN { IGNORECASE = 1; found = 0 }
+    /cursoragent@cursor\.com/ { found = 1 }
+    /^[[:space:]]*co-authored-by:[[:space:]]+cursor([[:space:]<]|$)/ { found = 1 }
+    /^[[:space:]]*co-authored-by:[[:space:]]+.*copilot/ { found = 1 }
+    /^[[:space:]]*co-authored-by:[[:space:]]+.*claude/ { found = 1 }
+    /^[[:space:]]*made-with:[[:space:]]*cursor([[:space:][:punct:]].*)?$/ { found = 1 }
+    /^[[:space:]]*(made|generated)[[:space:]]+(with|by)[[:space:]]+cursor([[:space:][:punct:]].*)?$/ { found = 1 }
+    /^[[:space:]]*(made|generated)[[:space:]]+(with|by)[[:space:]]+claude([[:space:][:punct:]].*)?$/ { found = 1 }
+    /^[[:space:]]*(made|generated)[[:space:]]+(with|by)[[:space:]]+chatgpt([[:space:][:punct:]].*)?$/ { found = 1 }
+    /^[[:space:]]*(made|generated)[[:space:]]+(with|by)[[:space:]]+github[[:space:]]+copilot([[:space:][:punct:]].*)?$/ { found = 1 }
+    /^[[:space:]]*https?:\/\/(www\.)?cursor\.com\/?([[:space:][:punct:]].*)?$/ { found = 1 }
+    END { exit(found ? 0 : 1) }
+  '
+}
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [[ -z "${local_sha:-}" ]] && continue
+  [[ "$local_sha" == "$zero_sha" ]] && continue
+
+  commit_range=""
+  if [[ "${remote_sha:-$zero_sha}" == "$zero_sha" ]]; then
+    commit_range="$local_sha"
+  else
+    commit_range="${remote_sha}..${local_sha}"
+  fi
+
+  while read -r commit_sha; do
+    [[ -z "$commit_sha" ]] && continue
+    if contains_forbidden_message "$commit_sha"; then
+      has_forbidden=1
+      echo "pre-push blocked: commit $commit_sha contains Cursor/AI trailer text." >&2
+      git log -1 --format=%B "$commit_sha" | sed 's/^/  | /' >&2
+    fi
+  done < <(git rev-list "$commit_range")
+done <<< "$stdin_data"
+
+if [[ "$has_forbidden" -eq 1 ]]; then
+  echo "pre-push blocked: remove Cursor/AI footers (commit-msg hook should strip them on new commits)." >&2
+  echo "  Tip: git config core.hooksPath githooks" >&2
+  exit 1
+fi
+
+exit 0
