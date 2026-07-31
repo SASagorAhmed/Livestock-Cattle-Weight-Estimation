@@ -33,6 +33,51 @@ def point_inside_mask(mask: np.ndarray, x: float, y: float) -> bool:
     return bool(mask[yi, xi] > 0)
 
 
+def snap_to_mask_upper(
+    mask: np.ndarray,
+    xs: np.ndarray,
+    top: np.ndarray,
+    x: float,
+    y: float | None = None,
+) -> tuple[float, float] | None:
+    """Snap (x,y) onto the upper silhouette so the point lies on the mask border.
+
+    Prefer the same column's top; if that column is empty, search nearest valid column.
+    """
+    if xs.size == 0 or top.size == 0:
+        return None
+    valid = top >= 0
+    if not np.any(valid):
+        return None
+    x_vals = xs[valid].astype(float)
+    t_vals = top[valid].astype(float)
+
+    # Prefer exact / nearest column by x
+    idx = int(np.argmin(np.abs(x_vals - float(x))))
+    sx = float(x_vals[idx])
+    sy = float(t_vals[idx])
+
+    # If caller y is inside mask and near top, keep x but snap y to top of that column
+    top_y = _top_at_x(xs, top, sx)
+    if top_y is not None:
+        sy = top_y
+
+    if not point_inside_mask(mask, sx, sy):
+        # Walk to nearest in-mask silhouette sample
+        order = np.argsort(np.abs(x_vals - float(x)))
+        found = False
+        for i in order:
+            cx, cy = float(x_vals[i]), float(t_vals[i])
+            if point_inside_mask(mask, cx, cy):
+                sx, sy = cx, cy
+                found = True
+                break
+        if not found:
+            return None
+
+    return sx, sy
+
+
 def _top_at_x(xs: np.ndarray, top: np.ndarray, x: float) -> float | None:
     xi = int(round(x))
     idx = np.where(xs == xi)[0]
@@ -143,4 +188,10 @@ def tail_head_on_body(
             if xi_top is not None:
                 y_best = xi_top
 
+    snapped = snap_to_mask_upper(mask, xs, top, x_best, y_best)
+    if snapped is None:
+        if not point_inside_mask(mask, x_best, y_best):
+            return None
+        return x_best, y_best, conf, source
+    x_best, y_best = snapped
     return x_best, y_best, conf, source

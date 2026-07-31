@@ -18,7 +18,7 @@ from config import POSE_DIR
 if str(POSE_DIR) not in sys.path:
     sys.path.insert(0, str(POSE_DIR))
 
-from anatomy_tail import tail_head_on_body  # noqa: E402
+from anatomy_tail import point_inside_mask, snap_to_mask_upper, tail_head_on_body  # noqa: E402
 from lower_chest_guide import lower_chest_line_dict  # noqa: E402
 from a_end_guide import body_height_axis, draw_a_end_vertical, synthesize_a_end_line  # noqa: E402
 
@@ -312,6 +312,30 @@ def _detect_tail_head(
     x_best, y_best, conf, source = result
     return x_best, y_best, conf, source
 
+
+def _tail_from_segment_anchor(
+    mask: np.ndarray,
+    xs: np.ndarray,
+    top: np.ndarray,
+    tail_anchor: dict | None,
+) -> tuple[float, float, float, str] | None:
+    """Prefer Segment step tail_anchor; snap onto mask upper border."""
+    if not tail_anchor or not tail_anchor.get("detected"):
+        return None
+    try:
+        tx = float(tail_anchor["x"])
+        ty = float(tail_anchor["y"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not (np.isfinite(tx) and np.isfinite(ty)):
+        return None
+    snapped = snap_to_mask_upper(mask, xs, top, tx, ty)
+    if snapped is None:
+        if point_inside_mask(mask, tx, ty):
+            return tx, ty, float(tail_anchor.get("confidence") or 0.85), "segmentation_tail_anchor"
+        return None
+    conf = float(tail_anchor.get("confidence") or 0.9)
+    return snapped[0], snapped[1], conf, "segmentation_tail_anchor"
 
 def _find_hump_peak(
     x_vals: np.ndarray,
@@ -677,6 +701,7 @@ def suggest_four_points_morpho(
     image_path: Path | str | None = None,
     debug_out_path: Path | str | None = None,
     belly_boundary_points: list | None = None,
+    tail_anchor: dict | None = None,
 ) -> dict[str, Any]:
     """Suggest 4 points. No mock coords — fail cleanly if inputs insufficient."""
     mask_path = Path(mask_path)
@@ -753,11 +778,27 @@ def suggest_four_points_morpho(
     xs, top, bottom = _silhouette(mask, x1, x2, y1, y2)
     chest_band = _chest_band(hd, x1, x2, keypoints, head_anchor)
 
-    p3 = _detect_tail_head(mask, xs, top, bottom, hd, keypoints)
+    # Prefer Segment tail_anchor; fall back to mask contour heuristic
+    p3 = _tail_from_segment_anchor(mask, xs, top, tail_anchor)
+    if p3 is None:
+        p3 = _detect_tail_head(mask, xs, top, bottom, hd, keypoints)
     if p3 is None:
         return {
             "available": False,
             "reason": "Could not detect tail head (P3) on rear upper contour.",
+            "head_direction_required": False,
+            "inferred_head_direction": hd,
+            "keypoints": None,
+            "point_detector": METHOD,
+        }
+    # Final safety: never emit B Start outside the mask
+    snapped_p3 = snap_to_mask_upper(mask, xs, top, p3[0], p3[1])
+    if snapped_p3 is not None:
+        p3 = (snapped_p3[0], snapped_p3[1], p3[2], p3[3] if len(p3) > 3 else "snapped")
+    elif not point_inside_mask(mask, p3[0], p3[1]):
+        return {
+            "available": False,
+            "reason": "Tail head (P3) could not be snapped inside the segmentation mask.",
             "head_direction_required": False,
             "inferred_head_direction": hd,
             "keypoints": None,

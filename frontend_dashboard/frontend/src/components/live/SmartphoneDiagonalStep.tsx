@@ -7,7 +7,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { fileUrl, stageFourPointDebug, stageFourPointSuggest } from '../../api';
-import type { HeadAnchor, ImagePoint, MeasureStageResponse, PoseStageResponse } from '../../types';
+import type { HeadAnchor, ImagePoint, MeasureStageResponse, PoseStageResponse, SegmentStageResponse } from '../../types';
 import { formatHeadFacing, forwardShoulderRefLabel, pointDisplayLabel } from '../../utils/formatPartName';
 import { aEndFromKeypoints, aEndFromLineDict } from '../../utils/aEndLine';
 import {
@@ -48,6 +48,7 @@ const LB_PER_KG = 2.20462;
 interface Props {
   measure: MeasureStageResponse | null;
   pose?: PoseStageResponse | null;
+  segment?: SegmentStageResponse | null;
   runId: string | null;
   busy: boolean;
   onApply: (payload: {
@@ -74,11 +75,20 @@ function clientToImg(
 ): ImagePoint | null {
   const rect = img.getBoundingClientRect();
   if (rect.width <= 0 || img.naturalWidth <= 0) return null;
-  const dx = clamp(clientX - rect.left, 0, rect.width);
-  const dy = clamp(clientY - rect.top, 0, rect.height);
+  const nw = img.naturalWidth;
+  const nh = img.naturalHeight;
+  // Match object-fit: contain (same as Body Measurement live-image-stage)
+  const scale = Math.min(rect.width / nw, rect.height / nh);
+  const cw = nw * scale;
+  const ch = nh * scale;
+  const ox = rect.left + (rect.width - cw) / 2;
+  const oy = rect.top + (rect.height - ch) / 2;
+  const dx = clamp(clientX - ox, 0, cw);
+  const dy = clamp(clientY - oy, 0, ch);
+  if (cw <= 0 || ch <= 0) return null;
   return {
-    x: Math.round(((dx / rect.width) * img.naturalWidth) * 100) / 100,
-    y: Math.round(((dy / rect.height) * img.naturalHeight) * 100) / 100,
+    x: Math.round(((dx / cw) * nw) * 100) / 100,
+    y: Math.round(((dy / ch) * nh) * 100) / 100,
   };
 }
 
@@ -124,7 +134,7 @@ function computeLive(
   };
 }
 
-export default function SmartphoneDiagonalStep({ measure, pose, runId, busy, onApply }: Props) {
+export default function SmartphoneDiagonalStep({ measure, pose, segment, runId, busy, onApply }: Props) {
   const imgRef = useRef<HTMLImageElement>(null);
   const [natural, setNatural] = useState({ w: 0, h: 0 });
   const [display, setDisplay] = useState({ w: 0, h: 0 });
@@ -373,6 +383,12 @@ export default function SmartphoneDiagonalStep({ measure, pose, runId, busy, onA
   const startDrag = (id: KeyName | 'refA' | 'refB', e: ReactPointerEvent) => {
     e.stopPropagation();
     e.preventDefault();
+    // Mutual lock: reference mode edits only ref points; anatomy mode only KEYs
+    if (id === 'refA' || id === 'refB') {
+      if (mode !== 'reference') return;
+    } else if (mode !== 'anatomy') {
+      return;
+    }
     dragging.current = id;
     setSelected(id);
     const move = (ev: PointerEvent) => {
@@ -506,9 +522,18 @@ export default function SmartphoneDiagonalStep({ measure, pose, runId, busy, onA
     return markers.find((m) => m.name === name) ?? null;
   }, [measure, headDirection]);
 
+  const segTailAnchor = useMemo(() => {
+    const t = segment?.segmentation?.tail_anchor
+      || measure?.measurements?.segmentation?.tail_anchor;
+    if (!t?.detected || t.x == null || t.y == null) return null;
+    return { x: t.x, y: t.y };
+  }, [segment?.segmentation?.tail_anchor, measure?.measurements?.segmentation?.tail_anchor]);
+
   const strokeMain = Math.max(2, Math.min(vw, vh) * 0.004);
   const strokeGuide = Math.max(2, Math.min(vw, vh) * 0.003);
   const fontSm = Math.max(9, Math.min(vw, vh) * 0.018);
+  const refEditable = mode === 'reference';
+  const keysEditable = mode === 'anatomy';
 
   /** Shared guides + A/B lines + points (interactive or read-only live preview). */
   const overlayContent = (interactive: boolean) => (
@@ -529,12 +554,12 @@ export default function SmartphoneDiagonalStep({ measure, pose, runId, busy, onA
       ) : null}
       {refA && refB ? (
         <g pointerEvents="none">
-          <line x1={refA.x} y1={refA.y} x2={refB.x} y2={refB.y} stroke="#1565c0" strokeWidth={strokeGuide} strokeDasharray="6 4" />
+          <line x1={refA.x} y1={refA.y} x2={refB.x} y2={refB.y} stroke="#2f7d32" strokeWidth={strokeGuide} strokeDasharray="6 4" />
           {refPx != null ? (
             <text
               x={(refA.x + refB.x) / 2}
               y={(refA.y + refB.y) / 2 - r}
-              fill="#0d47a1"
+              fill="#1b5e20"
               fontSize={Math.max(10, Math.min(vw, vh) * 0.02)}
               fontWeight={700}
               textAnchor="middle"
@@ -632,11 +657,11 @@ export default function SmartphoneDiagonalStep({ measure, pose, runId, busy, onA
           cy={refA.y}
           r={r}
           fill="#fff"
-          stroke="#1565c0"
+          stroke="#2f7d32"
           strokeWidth={2}
-          style={interactive ? { cursor: 'grab' } : undefined}
-          onPointerDown={interactive ? (e) => startDrag('refA', e) : undefined}
-          pointerEvents={interactive ? 'auto' : 'none'}
+          style={interactive && refEditable ? { cursor: 'grab' } : undefined}
+          onPointerDown={interactive && refEditable ? (e) => startDrag('refA', e) : undefined}
+          pointerEvents={interactive && refEditable ? 'auto' : 'none'}
         />
       ) : null}
       {refB ? (
@@ -645,20 +670,21 @@ export default function SmartphoneDiagonalStep({ measure, pose, runId, busy, onA
           cy={refB.y}
           r={r}
           fill="#fff"
-          stroke="#1565c0"
+          stroke="#2f7d32"
           strokeWidth={2}
-          style={interactive ? { cursor: 'grab' } : undefined}
-          onPointerDown={interactive ? (e) => startDrag('refB', e) : undefined}
-          pointerEvents={interactive ? 'auto' : 'none'}
+          style={interactive && refEditable ? { cursor: 'grab' } : undefined}
+          onPointerDown={interactive && refEditable ? (e) => startDrag('refB', e) : undefined}
+          pointerEvents={interactive && refEditable ? 'auto' : 'none'}
         />
       ) : null}
       {KEYS.map((k) => {
         const p = points[k];
         if (!p) return null;
         const color = k.startsWith('A') ? '#2f7d32' : '#ef6c00';
+        const canDragKey = interactive && keysEditable;
         return (
-          <g key={`${interactive ? 'edit' : 'preview'}-${k}`} pointerEvents={interactive ? 'auto' : 'none'}>
-            {interactive ? (
+          <g key={`${interactive ? 'edit' : 'preview'}-${k}`} pointerEvents={canDragKey ? 'auto' : 'none'}>
+            {canDragKey ? (
               <circle cx={p.x} cy={p.y} r={r * 2.2} fill="transparent" style={{ cursor: 'grab' }} onPointerDown={(e) => startDrag(k, e)} />
             ) : null}
             <circle cx={p.x} cy={p.y} r={r} fill="#fff" stroke={color} strokeWidth={2} pointerEvents="none" />
@@ -694,6 +720,27 @@ export default function SmartphoneDiagonalStep({ measure, pose, runId, busy, onA
           </text>
         </g>
       ) : null}
+      {segTailAnchor ? (
+        <g pointerEvents="none">
+          <circle
+            cx={segTailAnchor.x}
+            cy={segTailAnchor.y}
+            r={r * 1.15}
+            fill="#ff00ff"
+            stroke="#9c27b0"
+            strokeWidth={2}
+          />
+          <text
+            x={segTailAnchor.x + r * 1.5}
+            y={segTailAnchor.y - r * 0.8}
+            fill="#9c27b0"
+            fontSize={Math.max(11, Math.min(vw, vh) * 0.022)}
+            fontWeight={700}
+          >
+            Tail
+          </text>
+        </g>
+      ) : null}
     </>
   );
 
@@ -702,7 +749,7 @@ export default function SmartphoneDiagonalStep({ measure, pose, runId, busy, onA
       <h2 className="live-title">Cow Morpho Heuristic</h2>
       <p className="live-sub">
         Place a known-length reference scale, then review or adjust four body points.
-        Points are suggested automatically from the cow mask and pose.
+        Use <strong>Reference scale</strong> to move only the green endpoints; use <strong>Four keypoints</strong> to move only the body points (the other set stays locked).
       </p>
       <div className="meta-chips" style={{ marginBottom: '0.75rem' }}>
         <span className="chip">Model: Cow Morpho Heuristic</span>
@@ -747,7 +794,7 @@ export default function SmartphoneDiagonalStep({ measure, pose, runId, busy, onA
         <button type="button" className={`btn ${mode === 'reference' ? 'btn-primary' : 'btn-ghost'}`} disabled={busy} onClick={() => setMode('reference')}>
           1. Reference scale
         </button>
-        <button type="button" className={`btn ${mode === 'anatomy' ? 'btn-primary' : 'btn-ghost'}`} disabled={busy || !refA || !refB} onClick={() => setMode('anatomy')}>
+        <button type="button" className={`btn ${mode === 'anatomy' ? 'btn-primary' : 'btn-ghost'}`} disabled={busy} onClick={() => setMode('anatomy')}>
           2. Four keypoints
         </button>
         <button type="button" className="btn btn-ghost" disabled={busy || !runId} onClick={() => void suggest()}>
@@ -763,7 +810,10 @@ export default function SmartphoneDiagonalStep({ measure, pose, runId, busy, onA
             {' '}
             — drag points here
           </p>
-          <div className="calib-image-wrap reference-image-wrapper" style={{ maxWidth: '100%' }}>
+          <div
+            className={`live-image-stage${mode === 'reference' ? ' morpho-place-ref' : ''}`}
+            style={{ position: 'relative', width: '100%' }}
+          >
             {imageSrc ? (
               <img ref={imgRef} src={imageSrc} alt="Cow for diagonal formula" onLoad={syncSize} draggable={false} />
             ) : (
@@ -771,12 +821,15 @@ export default function SmartphoneDiagonalStep({ measure, pose, runId, busy, onA
             )}
             {ready ? (
               <svg
-                className="calib-overlay ref-overlay"
-                width={display.w}
-                height={display.h}
+                className="overlay-svg"
                 viewBox={`0 0 ${vw} ${vh}`}
-                preserveAspectRatio="none"
-                style={{ touchAction: 'none', pointerEvents: 'auto' }}
+                preserveAspectRatio="xMidYMid meet"
+                style={{
+                  touchAction: 'none',
+                  pointerEvents: 'auto',
+                  zIndex: 4,
+                  cursor: mode === 'reference' ? 'crosshair' : undefined,
+                }}
               >
                 {overlayContent(true)}
               </svg>
@@ -789,17 +842,15 @@ export default function SmartphoneDiagonalStep({ measure, pose, runId, busy, onA
             <p className="live-sub" style={{ marginBottom: '0.35rem' }}>
               <strong>Live preview</strong>
               {' '}
-              — updates as you drag (same points as editor)
+              — below editor; updates as you drag
             </p>
-            <div className="calib-image-wrap reference-image-wrapper" style={{ maxWidth: '100%', pointerEvents: 'none' }}>
+            <div className="live-image-stage" style={{ position: 'relative', width: '100%', pointerEvents: 'none' }}>
               <img src={imageSrc} alt="Live Morpho preview" draggable={false} />
               <svg
-                className="calib-overlay ref-overlay"
-                width={display.w}
-                height={display.h}
+                className="overlay-svg"
                 viewBox={`0 0 ${vw} ${vh}`}
-                preserveAspectRatio="none"
-                style={{ pointerEvents: 'none' }}
+                preserveAspectRatio="xMidYMid meet"
+                style={{ pointerEvents: 'none', zIndex: 4 }}
               >
                 {overlayContent(false)}
               </svg>

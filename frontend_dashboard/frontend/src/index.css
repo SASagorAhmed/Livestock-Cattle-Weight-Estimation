@@ -708,26 +708,16 @@ img {
   min-width: 0;
 }
 
-.morpho-dual-stage__pane .calib-image-wrap {
+.morpho-dual-stage .live-image-stage {
   width: 100%;
 }
 
-.morpho-dual-stage__pane .calib-image-wrap img {
-  width: 100%;
-  height: auto;
-  max-height: 52vh;
-  object-fit: contain;
+.morpho-dual-stage .live-image-stage.morpho-place-ref {
+  cursor: crosshair;
 }
 
-@media (min-width: 900px) {
-  .morpho-dual-stage {
-    flex-direction: row;
-    align-items: flex-start;
-  }
-
-  .morpho-dual-stage__pane {
-    flex: 1 1 0;
-  }
+.morpho-dual-stage .live-image-stage.morpho-place-ref .overlay-svg {
+  cursor: crosshair;
 }
 
 @media (max-width: 640px) {

@@ -108,6 +108,7 @@ export default function App() {
         <SmartphoneDiagonalStep
           measure={state.measure}
           pose={state.pose}
+          segment={state.segment}
           runId={state.runId}
           busy={state.busy}
           onApply={(payload) => void flow.applyScale(payload)}

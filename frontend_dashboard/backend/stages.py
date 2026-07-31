@@ -913,6 +913,7 @@ def stage_suggest_four_points(
     kpts = selected.get("keypoints") or {}
     seg = (report.get("measurements") or {}).get("segmentation") or {}
     belly_hints = seg.get("belly_boundary_points")
+    tail_anchor = seg.get("tail_anchor")
 
     # Reuse Pose/Measure YOLO mask; regenerate if missing so Morpho shares one mask
     if not mask_path.is_file():
@@ -932,6 +933,7 @@ def stage_suggest_four_points(
         image_path=image_path,
         debug_out_path=debug_path if mask_path.is_file() else None,
         belly_boundary_points=belly_hints,
+        tail_anchor=tail_anchor,
     )
 
     if suggestion.get("available") and suggestion.get("debug_image"):
